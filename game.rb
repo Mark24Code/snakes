@@ -8,17 +8,23 @@ Curses.noecho
 Curses.curs_set(0)  # Invisible cursor
 Curses.stdscr.keypad = true
 
-trap "INT" do
+exit_game = lambda do
   SnakeGame.stop
-
   puts "Good Bye! :D"
   exit 130
 end
 
+trap("INT"){ exit_game.call }
+at_exit { exit_game.call }
+
+
+
 class SnakeGame
   def initialize
-    @fps = 40.0
-    @refresh_time = 1 / @fps
+    @game_speed = 20
+    @game_update_time = 1.0 / @game_speed
+
+    @non_block_timeout = 0.001
 
     @frame = nil
     @board = nil
@@ -30,6 +36,7 @@ class SnakeGame
     @board_height = nil
 
     @pause = false
+    @game_status = :RUN # :RUN ,:PAUSE, :GAME_OVER
 
     @direction = [:UP, :DOWN, :LEFT, :RIGHT]
     @current_direction = @direction.sample
@@ -64,14 +71,9 @@ class SnakeGame
     @frame.addstr(title)
     @frame.refresh
 
-    @board = @frame.subwin(
-      @board_height,
-      @board_width,
-      1,
-      1
-    )
+    @board = @frame.subwin(@board_height,@board_width,1,1)
     @board.keypad = true
-    @board.timeout = 500
+    @board.timeout = @non_block_timeout
 
     @board.box(0, 0)
     @board.refresh
@@ -98,6 +100,29 @@ class SnakeGame
     return !@snake.include?(@food)
   end
 
+
+  def inc_speed
+    speed = @game_speed + 1
+    if speed >= 30
+      @game_speed = 30
+    else
+      @game_speed = speed
+    end
+  
+    @game_update_time = 1.0 / @game_speed
+  end
+
+  def dec_speed
+    speed = @game_speed - 1
+    if speed <= 5
+      @game_speed = 5
+    else
+      @game_speed = speed
+    end
+
+    @game_update_time = 1.0 / @game_speed
+  end
+
   def render_game_info
     # Press Key
     @info_board.setpos(1, 1)
@@ -106,6 +131,18 @@ class SnakeGame
     # score
     @info_board.setpos(3, 1)
     @info_board.addstr("[Score]: #{@score}")
+
+    # speed
+    @info_board.setpos(5, 1)
+    @info_board.addstr("[Speed]: #{@game_speed}")
+
+    # tick time
+    @info_board.setpos(7, 1)
+    @info_board.addstr("[Tick]: #{@game_update_time}")
+
+    # status
+    @info_board.setpos(9, 1)
+    @info_board.addstr("[Status]: #{@game_status}")
   end
 
   def render_food
@@ -127,6 +164,23 @@ class SnakeGame
       @board.setpos(node_y, node_x)
       @board.addstr("#")
     end
+  end
+
+  def check_game(next_point)
+    if @snake.include?(next_point)
+      @game_status = :GAME_OVER
+      return false
+    end
+
+    next_y, next_x = next_point
+
+    if !(next_x > 0 && next_x < @board_width && next_y > 0 && next_y < @board_height)
+      @game_status = :GAME_OVER
+      return false
+    end
+
+    return true
+    
   end
 
   def add_step
@@ -156,9 +210,13 @@ class SnakeGame
       return
     end
 
-    @snake.unshift([head_y, head_x])
-    @snake.pop
-    sleep 0.2
+    next_point = [head_y, head_x]
+
+    result = self.check_game(next_point)
+    if result
+      @snake.unshift(next_point)
+      @snake.pop
+    end
   end
 
   def _event_listener
@@ -178,31 +236,85 @@ class SnakeGame
         @current_direction = :LEFT
       elsif c == Curses::KEY_RIGHT || c == "d"
         @current_direction = :RIGHT
-      elsif c == Curses::KEY_BACKSPACE
-        @pause = true
+      elsif c == Curses::KEY_BACKSPACE || c == 'p'
+        @game_status = @game_status == :PAUSE ? :RUN : :PAUSE
+      elsif c == 'm'
+        self.inc_speed
+      elsif c == 'n'
+        self.dec_speed
       else
-        return
+        return # 这里其实断掉了。其实接住了外循环，每次读取数据
       end
     end
   end
 
+  def reset_game
+    self.initialize
+  end
+
   def main_loop
     loop do
-      self._event_listener # 会维持在这里所以必须是最前面，尤其是要比clear 领先
-
-      @board.clear
-      @info_board.clear
-      @board.box(0, 0)
-      @info_board.box(0, 0)
+      self.init_game_board
+      self.reset_game
+      game_result = catch(:end_game) do
+        while @game_status != :GAME_OVER do
+          self._event_listener
+          
+          @board.clear
+          @info_board.clear
+          @board.box(0, 0)
+          @info_board.box(0, 0)
+  
+          if @game_status == :RUN
+            self.add_step
+          end
+          self.render_food  
+          self.render_snake
+          self.check_game
+          self.render_game_info
+    
+          @board.refresh
+          @info_board.refresh
+          sleep @game_update_time
+        end
+  
+        throw :end_game, :GAME_OVER
+      end
       
-      self.add_step
-      self.render_snake
-      self.render_food
-      self.render_game_info
+      next_status = catch(:next_action) do
+        if game_result == :GAME_OVER
+          @board.timeout = -1
+          @board.clear
+          @board.box(0,0)
+          @board.setpos(@board_height/2, @board_width/2 - 10)
+          @board.addstr("GAME OVER")
+          @board.setpos(@board_height/2 + 2, @board_width/2 - 10)
+          @board.addstr("Play Again?")
+          @board.setpos(@board_height/2 + 3, @board_width/2 - 10)
+          @board.addstr("Y:Yes/ N: Exit")
+          @board.refresh
+          @board.timeout = -1
 
-      @board.refresh
-      @info_board.refresh
-      sleep @refresh_time
+          next_goto = @board.getch
+
+          # throw :next_action, :RUN
+          next_goto = nil
+          while next_goto != 'y'
+            next_goto = @board.getch
+            if next_goto == 'n'
+              exit 0
+            elsif next_goto == 'y'
+              @board.setpos(@board_height/2 + 4, @board_width/2 - 10)
+              @board.addstr(next_goto)
+              @board.refresh
+    
+              throw :next_action, :RUN
+            end
+          end
+        end
+      end
+
+      @game_status = next_status
     end
   end
 
@@ -225,5 +337,7 @@ end
 begin
   SnakeGame.run
 rescue StandardError => e
-  SnakeGame.stop
+  puts e
+  exit -1
 end
+
