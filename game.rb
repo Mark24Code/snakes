@@ -270,7 +270,6 @@ class SnakeGame
           end
           self.render_food  
           self.render_snake
-          self.check_game
           self.render_game_info
     
           @board.refresh
@@ -295,9 +294,6 @@ class SnakeGame
           @board.refresh
           @board.timeout = -1
 
-          next_goto = @board.getch
-
-          # throw :next_action, :RUN
           next_goto = nil
           while next_goto != 'y'
             next_goto = @board.getch
@@ -334,10 +330,13 @@ class SnakeGame
   end
 end
 
-begin
-  SnakeGame.run
-rescue StandardError => e
-  puts e
-  exit -1
-end
+SnakeGame.run
+
+# 下面这种方式看不到以异常
+# begin
+#   SnakeGame.run
+# rescue StandardError => e
+#   puts e
+#   exit -1
+# end
 
