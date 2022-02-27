@@ -21,7 +21,7 @@ at_exit { exit_game.call }
 
 class SnakeGame
   def initialize
-    @game_speed = 20
+    @game_speed = 5
     @game_update_time = 1.0 / @game_speed
 
     @non_block_timeout = 0.001
@@ -89,10 +89,10 @@ class SnakeGame
   end
 
   def create_food
-    @food = [rand(1..@board_height - 1), rand(1..@board_width - 1)]
+    @food = [rand(2..@board_height - 2), rand(2..@board_width - 2)]
 
     unless is_safe_food?
-      @food = [rand(1..@board_height - 1), rand(1..@board_width - 1)]
+      @food = [rand(2..@board_height - 2), rand(2..@board_width - 2)]
     end
   end
 
@@ -179,6 +179,12 @@ class SnakeGame
       return false
     end
 
+    food_y, food_x = @food
+    if food_y == next_y && food_x == next_x
+      @score += 1
+      @snake.unshift(@food)
+      self.create_food
+    end
     return true
     
   end
@@ -252,6 +258,11 @@ class SnakeGame
     self.initialize
   end
 
+  def check_speed
+    @game_speed = @score % 5 + 5
+    @game_update_time = 1.0 / @game_speed
+  end
+
   def main_loop
     loop do
       self.init_game_board
@@ -268,6 +279,7 @@ class SnakeGame
           if @game_status == :RUN
             self.add_step
           end
+          self.check_speed
           self.render_food  
           self.render_snake
           self.render_game_info
