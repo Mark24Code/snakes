@@ -1,7 +1,8 @@
 PATH
   remote: .
   specs:
-    snakes (0.1.1)
+    snakes (0.1.2)
+      curses (~> 1.4.4)
 
 GEM
   remote: https://rubygems.org/
